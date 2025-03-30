@@ -188,20 +188,22 @@ for table_query in tables:
     execute_with_retry(session, table_query)
 
 # Batch insert with improved performance
-def insert_batch(session, query: str, data: List[Tuple[Any, ...]], batch_size: int = 1000) -> None:
-    if len(data) >= batch_size:
-        try:
-            prepared = session.prepare(query)
-            batch = cassandra.query.BatchStatement()
-            
-            for item in data[:batch_size]:
-                batch.add(prepared, item)
-            
+def insert_batch(session, query: str, data: List[Tuple[Any, ...]], batch_size: int = 100):
+    try:
+        prepared = session.prepare(query)
+        batch = cassandra.query.BatchStatement()
+        
+        for i, item in enumerate(data[:batch_size]):
+            batch.add(prepared, item)
+        
+        if len(batch) > 0:
             session.execute(batch)
-            print(f"Inserted {batch_size} records into {query.split()[2]}")
-            del data[:batch_size]
-        except Exception as e:
-            print(f"Error: {str(e)}")
+            print(f"Inserted {len(batch)} records into table.")
+        else:
+            print("Batch was empty, no records inserted.")
+    except Exception as e:
+        print(f"Error during batch insert: {str(e)}")
+
 
 # Data generation functions with type hints
 def generate_hotels(count: int) -> List[Tuple]:
@@ -360,8 +362,8 @@ def generate_services_used(count: int, reservation_ids: List[uuid.UUID], service
 
 # Main data generation and insertion
 def main():
-    record_count = 500_000
-    batch_size = 10
+    record_count = 1_000_000
+    batch_size = 1000
     
     # Generate all IDs first for relationships
     hotel_ids = [uuid.uuid4() for _ in range(record_count)]
