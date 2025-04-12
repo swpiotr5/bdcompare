@@ -10,7 +10,7 @@ fake = Faker()
 client = MongoClient("mongodb://localhost:27018/")
 db = client["hotel_management"]
 
-def insert_batch(collection, data, batch_size=5000000):
+def insert_batch(collection, data, batch_size=500000):
     if len(data) >= batch_size:
         try:
             result = collection.insert_many(data)
@@ -22,7 +22,7 @@ def insert_batch(collection, data, batch_size=5000000):
 # 1. Kolekcja HOTELS
 hotels_collection = db["hotels"]
 hotels = []
-for _ in range(5_000_000):
+for _ in range(500_000):
     hotel = {
         "name": fake.company(),
         "city": fake.city(),
@@ -37,7 +37,7 @@ for _ in range(5_000_000):
 room_details_collection = db["room_details"]
 room_types = ["single", "double", "suite"]
 room_details = []
-for _ in range(5_000_000):
+for _ in range(500_000):
     detail = {
         "name": fake.word() + " Room",
         "description": fake.text(),
@@ -51,7 +51,7 @@ for _ in range(5_000_000):
 # 3. Kolekcja ROOMS
 rooms_collection = db["rooms"]
 rooms = []
-for _ in range(5_000_000):
+for _ in range(500_000):
     room = {
         "hotel_id": fake.uuid4(),
         "room_number": str(random.randint(100, 999)),
@@ -64,7 +64,7 @@ for _ in range(5_000_000):
 # 4. Kolekcja GUESTS
 guests_collection = db["guests"]
 guests = []
-for _ in range(5_000_000):
+for _ in range(500_000):
     guest = {
         "first_name": fake.first_name(),
         "last_name": fake.last_name(),
@@ -78,7 +78,7 @@ for _ in range(5_000_000):
 # 5. Kolekcja RESERVATIONS
 reservations_collection = db["reservations"]
 reservations = []
-for _ in range(5_000_000):
+for _ in range(500_000):
     check_in = fake.date_between(start_date="-1y", end_date="today")
     check_out = check_in + timedelta(days=random.randint(1, 14))
     reservation = {
@@ -97,7 +97,7 @@ for _ in range(5_000_000):
 # 6. Kolekcja BOOKING_PORTALS
 booking_portals_collection = db["booking_portals"]
 booking_portals = []
-for _ in range(5_000_000):
+for _ in range(500_000):
     portal = {"name": fake.company(), "website": fake.url()}
     booking_portals.append(portal)
     insert_batch(booking_portals_collection, booking_portals)
@@ -105,7 +105,7 @@ for _ in range(5_000_000):
 # 7. Kolekcja PAYMENTS
 payments_collection = db["payments"]
 payments = []
-for _ in range(5_000_000):
+for _ in range(500_000):
     payment_date = fake.date_between(start_date="-1y", end_date="today")
     payment = {
         "reservation_id": fake.uuid4(),
@@ -121,7 +121,7 @@ insert_batch(payments_collection, payments)
 # 8. Kolekcja REVIEWS
 reviews_collection = db["reviews"]
 reviews = []
-for _ in range(5_000_000):
+for _ in range(500_000):
     review = {
         "guest_id": fake.uuid4(),
         "hotel_id": fake.uuid4(),
@@ -135,7 +135,7 @@ for _ in range(5_000_000):
 # 9. Kolekcja DEPARTMENTS
 departments_collection = db["departments"]
 departments = []
-for _ in range(5_000_000):
+for _ in range(500_000):
     department = {"name": fake.job(), "description": fake.text()}
     departments.append(department)
     insert_batch(departments_collection, departments)
@@ -143,7 +143,7 @@ for _ in range(5_000_000):
 # 10. Kolekcja EMPLOYEES
 employees_collection = db["employees"]
 employees = []
-for _ in range(5_000_000):
+for _ in range(500_000):
     employee = {
         "hotel_id": fake.uuid4(),
         "first_name": fake.first_name(),
@@ -158,7 +158,7 @@ for _ in range(5_000_000):
 # 11. Kolekcja SHIFT_SCHEDULES
 shift_schedules_collection = db["shift_schedules"]
 shift_schedules = []
-for _ in range(5_000_000):
+for _ in range(500_000):
     shift = {
         "employee_id": fake.uuid4(),
         "shift_date": datetime.combine(fake.date_this_month(), datetime.min.time()),
@@ -175,7 +175,7 @@ for _ in range(5_000_000):
 # 12. Kolekcja SERVICES
 services_collection = db["services"]
 services = []
-for _ in range(5_000_000):
+for _ in range(500_000):
     service = {"name": fake.word(), "price": round(random.uniform(20, 500), 2)}
     services.append(service)
     insert_batch(services_collection, services)
@@ -183,7 +183,7 @@ for _ in range(5_000_000):
 # 13. Kolekcja SERVICES_USED
 services_used_collection = db["services_used"]
 services_used = []
-for _ in range(5_000_000):
+for _ in range(500_000):
     service_used = {
         "reservation_id": fake.uuid4(),
         "service_id": fake.uuid4(),

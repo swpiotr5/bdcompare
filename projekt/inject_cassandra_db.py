@@ -1,5 +1,3 @@
-import cassandra
-print(cassandra.__version__)
 from faker import Faker
 from cassandra.cluster import Cluster
 from cassandra.auth import PlainTextAuthProvider
@@ -7,58 +5,25 @@ import random
 from datetime import datetime, timedelta
 import uuid
 import time
-from typing import List, Tuple, Any
-from concurrent.futures import ThreadPoolExecutor
 
-# Initialize Faker with performance optimizations
+# Initialize Faker
 fake = Faker()
-Faker.seed(42)  # For reproducible results
-random.seed(42)
 
+# Cassandra connection setup
 auth_provider = PlainTextAuthProvider(username='cassandra', password='cassandra')
-cluster = Cluster(
-    ['127.0.0.1'],
-    port=9044,
-    auth_provider=auth_provider,
-    connect_timeout=60,
-    idle_heartbeat_interval=30
-)
-
-# Connect with retry logic
-def connect_with_retry(cluster, max_retries=3, delay=5):
-    for attempt in range(max_retries):
-        try:
-            return cluster.connect()
-        except Exception as e:
-            print(f"Connection attempt {attempt + 1} failed: {e}")
-            if attempt < max_retries - 1:
-                time.sleep(delay)
-    raise Exception("Failed to connect to Cassandra after multiple attempts")
-
-session = connect_with_retry(cluster)
-
-# Create keyspace and tables with error handling
-def execute_with_retry(session, query, max_retries=3):
-    for attempt in range(max_retries):
-        try:
-            return session.execute(query)
-        except Exception as e:
-            print(f"Query attempt {attempt + 1} failed: {e}")
-            if attempt < max_retries - 1:
-                time.sleep(2)
-    raise Exception(f"Failed to execute query after {max_retries} attempts: {query}")
+cluster = Cluster(['localhost'], port=9044, auth_provider=auth_provider)
+session = cluster.connect()
 
 # Create keyspace
-execute_with_retry(session, """
-CREATE KEYSPACE IF NOT EXISTS hotel_management 
-WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}
+session.execute("""
+    CREATE KEYSPACE IF NOT EXISTS hotel_management_3 
+    WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}
 """)
+session.set_keyspace('hotel_management_3')
 
-session.set_keyspace('hotel_management')
-
-# Create tables with IF NOT EXISTS
-tables = [
-    """
+# Create tables
+print("Creating tables...")
+session.execute("""
     CREATE TABLE IF NOT EXISTS hotels (
         hotel_id UUID PRIMARY KEY,
         name TEXT,
@@ -67,27 +32,30 @@ tables = [
         stars INT,
         address TEXT
     )
-    """,
-    """
+""")
+
+session.execute("""
     CREATE TABLE IF NOT EXISTS room_details (
-        detail_id UUID PRIMARY KEY,
+        room_detail_id UUID PRIMARY KEY,
         name TEXT,
         description TEXT,
         room_type TEXT,
         price DECIMAL,
         capacity INT
     )
-    """,
-    """
+""")
+
+session.execute("""
     CREATE TABLE IF NOT EXISTS rooms (
         room_id UUID PRIMARY KEY,
         hotel_id UUID,
         room_number TEXT,
         status TEXT,
-        room_details UUID
+        room_detail_id UUID
     )
-    """,
-    """
+""")
+
+session.execute("""
     CREATE TABLE IF NOT EXISTS guests (
         guest_id UUID PRIMARY KEY,
         first_name TEXT,
@@ -96,8 +64,17 @@ tables = [
         phone TEXT,
         country TEXT
     )
-    """,
-    """
+""")
+
+session.execute("""
+    CREATE TABLE IF NOT EXISTS booking_portals (
+        portal_id UUID PRIMARY KEY,
+        name TEXT,
+        website TEXT
+    )
+""")
+
+session.execute("""
     CREATE TABLE IF NOT EXISTS reservations (
         reservation_id UUID PRIMARY KEY,
         guest_id UUID,
@@ -106,28 +83,22 @@ tables = [
         check_out DATE,
         status TEXT,
         total_price DECIMAL,
-        portal_id UUID,
-        portal_name TEXT
+        portal_id UUID
     )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS booking_portals (
-        portal_id UUID PRIMARY KEY,
-        name TEXT,
-        website TEXT
-    )
-    """,
-    """
+""")
+
+session.execute("""
     CREATE TABLE IF NOT EXISTS payments (
         payment_id UUID PRIMARY KEY,
         reservation_id UUID,
         amount DECIMAL,
         method TEXT,
         status TEXT,
-        payment_date DATE
+        payment_date TIMESTAMP
     )
-    """,
-    """
+""")
+
+session.execute("""
     CREATE TABLE IF NOT EXISTS reviews (
         review_id UUID PRIMARY KEY,
         guest_id UUID,
@@ -136,15 +107,17 @@ tables = [
         comment TEXT,
         review_date TIMESTAMP
     )
-    """,
-    """
+""")
+
+session.execute("""
     CREATE TABLE IF NOT EXISTS departments (
         department_id UUID PRIMARY KEY,
         name TEXT,
         description TEXT
     )
-    """,
-    """
+""")
+
+session.execute("""
     CREATE TABLE IF NOT EXISTS employees (
         employee_id UUID PRIMARY KEY,
         hotel_id UUID,
@@ -154,309 +127,317 @@ tables = [
         salary DECIMAL,
         department_id UUID
     )
-    """,
-    """
+""")
+
+session.execute("""
     CREATE TABLE IF NOT EXISTS shift_schedules (
         shift_id UUID PRIMARY KEY,
         employee_id UUID,
         shift_date DATE,
-        shift_start TEXT,
-        shift_end TEXT,
+        shift_start TIME,
+        shift_end TIME,
         shift_type TEXT,
         status TEXT,
         department_id UUID
     )
-    """,
-    """
+""")
+
+session.execute("""
     CREATE TABLE IF NOT EXISTS services (
         service_id UUID PRIMARY KEY,
         name TEXT,
         price DECIMAL
     )
-    """,
-    """
+""")
+
+session.execute("""
     CREATE TABLE IF NOT EXISTS services_used (
         service_used_id UUID PRIMARY KEY,
         reservation_id UUID,
         service_id UUID,
         quantity INT
     )
-    """
-]
+""")
 
-for table_query in tables:
-    execute_with_retry(session, table_query)
+print("Tables created successfully.")
 
-# Batch insert with improved performance
-def insert_batch(session, query: str, data: List[Tuple[Any, ...]], batch_size: int = 100):
-    try:
-        prepared = session.prepare(query)
-        batch = cassandra.query.BatchStatement()
-        
-        for i, item in enumerate(data[:batch_size]):
-            batch.add(prepared, item)
-        
-        if len(batch) > 0:
-            session.execute(batch)
-            print(f"Inserted {len(batch)} records into table.")
-        else:
-            print("Batch was empty, no records inserted.")
-    except Exception as e:
-        print(f"Error during batch insert: {str(e)}")
+# Prepare statements for faster inserts
+print("Preparing statements...")
+hotels_insert = session.prepare("""
+    INSERT INTO hotels (hotel_id, name, city, country, stars, address)
+    VALUES (?, ?, ?, ?, ?, ?)
+""")
 
+room_details_insert = session.prepare("""
+    INSERT INTO room_details (room_detail_id, name, description, room_type, price, capacity)
+    VALUES (?, ?, ?, ?, ?, ?)
+""")
 
-# Data generation functions with type hints
-def generate_hotels(count: int) -> List[Tuple]:
-    return [
-        (
-            uuid.uuid4(),
-            fake.unique.company(),
+rooms_insert = session.prepare("""
+    INSERT INTO rooms (room_id, hotel_id, room_number, status, room_detail_id)
+    VALUES (?, ?, ?, ?, ?)
+""")
+
+guests_insert = session.prepare("""
+    INSERT INTO guests (guest_id, first_name, last_name, email, phone, country)
+    VALUES (?, ?, ?, ?, ?, ?)
+""")
+
+booking_portals_insert = session.prepare("""
+    INSERT INTO booking_portals (portal_id, name, website)
+    VALUES (?, ?, ?)
+""")
+
+reservations_insert = session.prepare("""
+    INSERT INTO reservations (reservation_id, guest_id, room_id, check_in, check_out, status, total_price, portal_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+""")
+
+payments_insert = session.prepare("""
+    INSERT INTO payments (payment_id, reservation_id, amount, method, status, payment_date)
+    VALUES (?, ?, ?, ?, ?, ?)
+""")
+
+reviews_insert = session.prepare("""
+    INSERT INTO reviews (review_id, guest_id, hotel_id, rating, comment, review_date)
+    VALUES (?, ?, ?, ?, ?, ?)
+""")
+
+departments_insert = session.prepare("""
+    INSERT INTO departments (department_id, name, description)
+    VALUES (?, ?, ?)
+""")
+
+employees_insert = session.prepare("""
+    INSERT INTO employees (employee_id, hotel_id, first_name, last_name, position, salary, department_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+""")
+
+shift_schedules_insert = session.prepare("""
+    INSERT INTO shift_schedules (shift_id, employee_id, shift_date, shift_start, shift_end, shift_type, status, department_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+""")
+
+services_insert = session.prepare("""
+    INSERT INTO services (service_id, name, price)
+    VALUES (?, ?, ?)
+""")
+
+services_used_insert = session.prepare("""
+    INSERT INTO services_used (service_used_id, reservation_id, service_id, quantity)
+    VALUES (?, ?, ?, ?)
+""")
+
+print("Statements prepared.")
+
+# Generate and insert data
+def generate_and_insert_data(num_records=1_000_000, batch_size=1000):
+    print(f"Generating and inserting {num_records} records for each table...")
+    
+    # Generate IDs first for relationships
+    hotel_ids = [uuid.uuid4() for _ in range(num_records)]
+    room_detail_ids = [uuid.uuid4() for _ in range(num_records)]
+    room_ids = [uuid.uuid4() for _ in range(num_records)]
+    guest_ids = [uuid.uuid4() for _ in range(num_records)]
+    portal_ids = [uuid.uuid4() for _ in range(num_records)]
+    reservation_ids = [uuid.uuid4() for _ in range(num_records)]
+    payment_ids = [uuid.uuid4() for _ in range(num_records)]
+    review_ids = [uuid.uuid4() for _ in range(num_records)]
+    department_ids = [uuid.uuid4() for _ in range(num_records)]
+    employee_ids = [uuid.uuid4() for _ in range(num_records)]
+    shift_ids = [uuid.uuid4() for _ in range(num_records)]
+    service_ids = [uuid.uuid4() for _ in range(num_records)]
+    service_used_ids = [uuid.uuid4() for _ in range(num_records)]
+    
+    # Track progress
+    start_time = time.time()
+    
+    # 1. Insert hotels
+    print("Inserting hotels...")
+    for i in range(num_records):
+        session.execute(hotels_insert, (
+            hotel_ids[i],
+            fake.company(),
             fake.city(),
             fake.country(),
             random.randint(1, 5),
             fake.address()
-        ) for _ in range(count)
-    ]
-
-def generate_room_details(count: int) -> List[Tuple]:
-    room_types = ["single", "double", "suite", "deluxe", "family"]
-    return [
-        (
-            uuid.uuid4(),
-            f"{fake.word().capitalize()} Room",
-            fake.text(max_nb_chars=200),
+        ))
+        if i % batch_size == 0 and i > 0:
+            print(f"Inserted {i} hotels...")
+    
+    # 2. Insert room_details
+    print("Inserting room details...")
+    room_types = ["single", "double", "suite"]
+    for i in range(num_records):
+        session.execute(room_details_insert, (
+            room_detail_ids[i],
+            fake.word() + " Room",
+            fake.text(),
             random.choice(room_types),
             round(random.uniform(50, 500), 2),
-            random.randint(1, 6)
-        ) for _ in range(count)
-    ]
-
-def generate_rooms(count: int, hotel_ids: List[uuid.UUID], detail_ids: List[uuid.UUID]) -> List[Tuple]:
-    return [
-        (
-            uuid.uuid4(),
-            random.choice(hotel_ids),
+            random.randint(1, 4)
+        ))
+        if i % batch_size == 0 and i > 0:
+            print(f"Inserted {i} room details...")
+    
+    # 3. Insert rooms
+    print("Inserting rooms...")
+    for i in range(num_records):
+        session.execute(rooms_insert, (
+            room_ids[i],
+            hotel_ids[i % len(hotel_ids)],  # Use modulo to stay within bounds
             str(random.randint(100, 999)),
-            random.choice(["available", "occupied", "maintenance"]),
-            random.choice(detail_ids)
-        ) for _ in range(count)
-    ]
-
-def generate_guests(count: int) -> List[Tuple]:
-    return [
-        (
-            uuid.uuid4(),
+            random.choice(["available", "occupied"]),
+            room_detail_ids[i % len(room_detail_ids)]
+        ))
+        if i % batch_size == 0 and i > 0:
+            print(f"Inserted {i} rooms...")
+    
+    # 4. Insert guests
+    print("Inserting guests...")
+    for i in range(num_records):
+        session.execute(guests_insert, (
+            guest_ids[i],
             fake.first_name(),
             fake.last_name(),
-            fake.unique.email(),
+            fake.email(),
             fake.phone_number(),
             fake.country()
-        ) for _ in range(count)
-    ]
-
-def generate_reservations(count: int, guest_ids: List[uuid.UUID], room_ids: List[uuid.UUID], portal_ids: List[uuid.UUID]) -> List[Tuple]:
-    return [
-        (
-            uuid.uuid4(),
-            random.choice(guest_ids),
-            random.choice(room_ids),
-            fake.date_between(start_date="-1y", end_date="today"),
-            fake.date_between(start_date="today", end_date="+30d"),
-            random.choice(["confirmed", "cancelled", "completed", "no-show"]),
-            round(random.uniform(100, 5000), 2),
-            random.choice(portal_ids),
-            fake.company()
-        ) for _ in range(count)
-    ]
-
-def generate_booking_portals(count: int) -> List[Tuple]:
-    return [
-        (
-            uuid.uuid4(),
-            fake.unique.company(),
+        ))
+        if i % batch_size == 0 and i > 0:
+            print(f"Inserted {i} guests...")
+    
+    # 5. Insert booking portals
+    print("Inserting booking portals...")
+    for i in range(num_records):
+        session.execute(booking_portals_insert, (
+            portal_ids[i],
+            fake.company(),
             fake.url()
-        ) for _ in range(count)
-    ]
-
-def generate_payments(count: int, reservation_ids: List[uuid.UUID]) -> List[Tuple]:
-    return [
-        (
-            uuid.uuid4(),
-            random.choice(reservation_ids),
+        ))
+        if i % batch_size == 0 and i > 0:
+            print(f"Inserted {i} booking portals...")
+    
+    # 6. Insert reservations
+    print("Inserting reservations...")
+    for i in range(num_records):
+        check_in = fake.date_between(start_date="-1y", end_date="today")
+        check_out = check_in + timedelta(days=random.randint(1, 14))
+        
+        session.execute(reservations_insert, (
+            reservation_ids[i],
+            guest_ids[i % len(guest_ids)],
+            room_ids[i % len(room_ids)],
+            check_in,
+            check_out,
+            random.choice(["confirmed", "cancelled", "completed"]),
+            round(random.uniform(100, 5000), 2),
+            portal_ids[i % len(portal_ids)]
+        ))
+        if i % batch_size == 0 and i > 0:
+            print(f"Inserted {i} reservations...")
+    
+    # 7. Insert payments
+    print("Inserting payments...")
+    for i in range(num_records):
+        payment_date = fake.date_between(start_date="-1y", end_date="today")
+        
+        session.execute(payments_insert, (
+            payment_ids[i],
+            reservation_ids[i % len(reservation_ids)],
             round(random.uniform(50, 5000), 2),
-            random.choice(["credit_card", "cash", "paypal", "bank_transfer"]),
-            random.choice(["paid", "failed", "pending", "refunded"]),
-            fake.date_between(start_date="-1y", end_date="today")
-        ) for _ in range(count)
-    ]
-
-def generate_reviews(count: int, guest_ids: List[uuid.UUID], hotel_ids: List[uuid.UUID]) -> List[Tuple]:
-    return [
-        (
-            uuid.uuid4(),
-            random.choice(guest_ids),
-            random.choice(hotel_ids),
+            random.choice(["credit_card", "cash", "paypal"]),
+            random.choice(["paid", "failed", "pending"]),
+            datetime.combine(payment_date, datetime.min.time())
+        ))
+        if i % batch_size == 0 and i > 0:
+            print(f"Inserted {i} payments...")
+    
+    # 8. Insert reviews
+    print("Inserting reviews...")
+    for i in range(num_records):
+        session.execute(reviews_insert, (
+            review_ids[i],
+            guest_ids[i % len(guest_ids)],
+            hotel_ids[i % len(hotel_ids)],
             random.randint(1, 5),
-            fake.text(max_nb_chars=300),
+            fake.text(),
             datetime.combine(fake.date_this_year(), datetime.min.time())
-        ) for _ in range(count)
-    ]
-
-def generate_departments(count: int) -> List[Tuple]:
-    dept_names = ["Front Desk", "Housekeeping", "Maintenance", "Management", "Food & Beverage", "Security"]
-    return [
-        (
-            uuid.uuid4(),
-            f"{random.choice(dept_names)} {fake.word().capitalize()}",
-            fake.text(max_nb_chars=150)
-        ) for _ in range(count)
-    ]
-
-def generate_employees(count: int, hotel_ids: List[uuid.UUID], dept_ids: List[uuid.UUID]) -> List[Tuple]:
-    positions = ["Manager", "Supervisor", "Staff", "Assistant", "Director"]
-    return [
-        (
-            uuid.uuid4(),
-            random.choice(hotel_ids),
+        ))
+        if i % batch_size == 0 and i > 0:
+            print(f"Inserted {i} reviews...")
+    
+    # 9. Insert departments
+    print("Inserting departments...")
+    for i in range(num_records):
+        session.execute(departments_insert, (
+            department_ids[i],
+            fake.job(),
+            fake.text()
+        ))
+        if i % batch_size == 0 and i > 0:
+            print(f"Inserted {i} departments...")
+    
+    # 10. Insert employees
+    print("Inserting employees...")
+    for i in range(num_records):
+        session.execute(employees_insert, (
+            employee_ids[i],
+            hotel_ids[i % len(hotel_ids)],
             fake.first_name(),
             fake.last_name(),
-            f"{fake.word().capitalize()} {random.choice(positions)}",
+            fake.job(),
             round(random.uniform(3000, 10000), 2),
-            random.choice(dept_ids)
-        ) for _ in range(count)
-    ]
-
-def generate_shift_schedules(count: int, emp_ids: List[uuid.UUID], dept_ids: List[uuid.UUID]) -> List[Tuple]:
-    shift_times = [("08:00", "16:00"), ("16:00", "00:00"), ("00:00", "08:00")]
-    return [
-        (
-            uuid.uuid4(),
-            random.choice(emp_ids),
+            department_ids[i % len(department_ids)]
+        ))
+        if i % batch_size == 0 and i > 0:
+            print(f"Inserted {i} employees...")
+    
+    # 11. Insert shift schedules
+    print("Inserting shift schedules...")
+    for i in range(num_records):
+        session.execute(shift_schedules_insert, (
+            shift_ids[i],
+            employee_ids[i % len(employee_ids)],
             fake.date_this_month(),
-            *random.choice(shift_times),
+            "08:00:00",
+            "16:00:00",
             random.choice(["morning", "evening", "night"]),
-            random.choice(["confirmed", "sick", "absent", "vacation"]),
-            random.choice(dept_ids)
-        ) for _ in range(count)
-    ]
-
-def generate_services(count: int) -> List[Tuple]:
-    service_names = ["Breakfast", "Laundry", "Spa", "Parking", "Room Service", "Mini Bar"]
-    return [
-        (
-            uuid.uuid4(),
-            f"{random.choice(service_names)} {fake.word().capitalize()}",
+            random.choice(["confirmed", "sick", "absent"]),
+            department_ids[i % len(department_ids)]
+        ))
+        if i % batch_size == 0 and i > 0:
+            print(f"Inserted {i} shift schedules...")
+    
+    # 12. Insert services
+    print("Inserting services...")
+    for i in range(num_records):
+        session.execute(services_insert, (
+            service_ids[i],
+            fake.word(),
             round(random.uniform(20, 500), 2)
-        ) for _ in range(count)
-    ]
-
-def generate_services_used(count: int, reservation_ids: List[uuid.UUID], service_ids: List[uuid.UUID]) -> List[Tuple]:
-    return [
-        (
-            uuid.uuid4(),
-            random.choice(reservation_ids),
-            random.choice(service_ids),
+        ))
+        if i % batch_size == 0 and i > 0:
+            print(f"Inserted {i} services...")
+    
+    # 13. Insert services used
+    print("Inserting services used...")
+    for i in range(num_records):
+        session.execute(services_used_insert, (
+            service_used_ids[i],
+            reservation_ids[i % len(reservation_ids)],
+            service_ids[i % len(service_ids)],
             random.randint(1, 5)
-        ) for _ in range(count)
-    ]
+        ))
+        if i % batch_size == 0 and i > 0:
+            print(f"Inserted {i} services used...")
+    
+    end_time = time.time()
+    print(f"All data inserted successfully in {end_time - start_time:.2f} seconds!")
 
-# Main data generation and insertion
-def main():
-    record_count = 1_000_000
-    batch_size = 1000
-    
-    # Generate all IDs first for relationships
-    hotel_ids = [uuid.uuid4() for _ in range(record_count)]
-    detail_ids = [uuid.uuid4() for _ in range(record_count)]
-    guest_ids = [uuid.uuid4() for _ in range(record_count)]
-    portal_ids = [uuid.uuid4() for _ in range(record_count)]
-    dept_ids = [uuid.uuid4() for _ in range(record_count)]
-    service_ids = [uuid.uuid4() for _ in range(record_count)]
-    
-    # Generate data in parallel
-    with ThreadPoolExecutor() as executor:
-        # Independent tables
-        hotels_future = executor.submit(generate_hotels, record_count)
-        room_details_future = executor.submit(generate_room_details, record_count)
-        guests_future = executor.submit(generate_guests, record_count)
-        booking_portals_future = executor.submit(generate_booking_portals, record_count)
-        departments_future = executor.submit(generate_departments, record_count)
-        services_future = executor.submit(generate_services, record_count)
-        
-        # Wait for required futures
-        hotels = hotels_future.result()
-        room_details = room_details_future.result()
-        guests = guests_future.result()
-        booking_portals = booking_portals_future.result()
-        departments = departments_future.result()
-        services = services_future.result()
-        
-        # Dependent tables
-        rooms_future = executor.submit(generate_rooms, record_count, hotel_ids, detail_ids)
-        reservations_future = executor.submit(generate_reservations, record_count, guest_ids, 
-                                           [r[0] for r in rooms_future.result()], portal_ids)
-        payments_future = executor.submit(generate_payments, record_count, 
-                                        [r[0] for r in reservations_future.result()])
-        reviews_future = executor.submit(generate_reviews, record_count, guest_ids, hotel_ids)
-        employees_future = executor.submit(generate_employees, record_count, hotel_ids, dept_ids)
-        shift_schedules_future = executor.submit(generate_shift_schedules, record_count, 
-                                              [e[0] for e in employees_future.result()], dept_ids)
-        services_used_future = executor.submit(generate_services_used, record_count, 
-                                            [r[0] for r in reservations_future.result()], service_ids)
-        
-        # Get all results
-        rooms = rooms_future.result()
-        reservations = reservations_future.result()
-        payments = payments_future.result()
-        reviews = reviews_future.result()
-        employees = employees_future.result()
-        shift_schedules = shift_schedules_future.result()
-        services_used = services_used_future.result()
-    
-    # Prepare queries
-    queries = {
-        "hotels": "INSERT INTO hotels (hotel_id, name, city, country, stars, address) VALUES (?, ?, ?, ?, ?, ?)",
-        "room_details": "INSERT INTO room_details (detail_id, name, description, room_type, price, capacity) VALUES (?, ?, ?, ?, ?, ?)",
-        "rooms": "INSERT INTO rooms (room_id, hotel_id, room_number, status, room_details) VALUES (?, ?, ?, ?, ?)",
-        "guests": "INSERT INTO guests (guest_id, first_name, last_name, email, phone, country) VALUES (?, ?, ?, ?, ?, ?)",
-        "reservations": "INSERT INTO reservations (reservation_id, guest_id, room_id, check_in, check_out, status, total_price, portal_id, portal_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        "booking_portals": "INSERT INTO booking_portals (portal_id, name, website) VALUES (?, ?, ?)",
-        "payments": "INSERT INTO payments (payment_id, reservation_id, amount, method, status, payment_date) VALUES (?, ?, ?, ?, ?, ?)",
-        "reviews": "INSERT INTO reviews (review_id, guest_id, hotel_id, rating, comment, review_date) VALUES (?, ?, ?, ?, ?, ?)",
-        "departments": "INSERT INTO departments (department_id, name, description) VALUES (?, ?, ?)",
-        "employees": "INSERT INTO employees (employee_id, hotel_id, first_name, last_name, position, salary, department_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        "shift_schedules": "INSERT INTO shift_schedules (shift_id, employee_id, shift_date, shift_start, shift_end, shift_type, status, department_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        "services": "INSERT INTO services (service_id, name, price) VALUES (?, ?, ?)",
-        "services_used": "INSERT INTO services_used (service_used_id, reservation_id, service_id, quantity) VALUES (?, ?, ?, ?)"
-    }
-    
-    # Insert data in batches
-    data_sets = [
-        ("hotels", hotels),
-        ("room_details", room_details),
-        ("rooms", rooms),
-        ("guests", guests),
-        ("reservations", reservations),
-        ("booking_portals", booking_portals),
-        ("payments", payments),
-        ("reviews", reviews),
-        ("departments", departments),
-        ("employees", employees),
-        ("shift_schedules", shift_schedules),
-        ("services", services),
-        ("services_used", services_used)
-    ]
-    
-    for table_name, data in data_sets:
-        query = queries[table_name]
-        print(f"Inserting {len(data)} records into {table_name}...")
-        
-        for i in range(0, len(data), batch_size):
-            batch = data[i:i + batch_size]
-            insert_batch(session, query, batch)
-    
-    print("All data has been successfully inserted into Cassandra!")
-    cluster.shutdown()
+# Execute the data generation
+generate_and_insert_data(num_records=500_000)
 
-if __name__ == "__main__":
-    main()
+# Close the connection
+cluster.shutdown()
