@@ -4,6 +4,8 @@ import pandas as pd
 import plotly.express as px
 from adapters.mongo_adapter import MongoAdapter
 from adapters.cassandra_adapter import CassandraAdapter
+from adapters.postgre_adapter import PostgresAdapter
+from adapters.mysql_adapter import MySQLAdapter
 
 # -------------------- CONFIG --------------------
 st.set_page_config(page_title="DB Benchmark GUI", layout="wide")
@@ -22,8 +24,8 @@ st.title("🚀 Interaktywny Benchmark Baz Danych")
 ADAPTERS = {
     "MongoDB": MongoAdapter(),
     "Cassandra": CassandraAdapter(),
-    # "MySQL": MySQLAdapter(),
-    # "PostgreSQL": PostgresAdapter(),
+    "MySQL": MySQLAdapter(),
+    "PostgreSQL": PostgresAdapter(),
 }
 
 TESTS = [
@@ -73,10 +75,11 @@ if run_button and selected_dbs and selected_tests:
                     all_results.append({
                         "Baza": db_name,
                         "Test": test,
-                        "Czas [s]": None,
-                        "Wyniki": "Błąd",
+                        "Czas [s]": -1,      # ✅
+                        "Wyniki": -1,        # ✅ zawsze int!
                         "Sample": str(e)
                     })
+
 
     # Exclude 'Sample' from the main dataframe to avoid pyarrow.ObjectId issues
     df = pd.DataFrame([{k: v for k, v in row.items() if k != "Sample"} for row in all_results])
